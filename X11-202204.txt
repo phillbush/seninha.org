@@ -286,9 +286,10 @@ CODE: {
 	xmenu -ew rules/control &
 }
 
-Xmenu is first of all a menu system.  It can present itself as a dockapp
-which I dock on the dock.  I can navigate through the menus and select
-an entry to be executed by the shell.
+«Xmenu -- https://github.com/phillbush/xmenu» is first of all a menu
+system.  It can present itself as a dockapp which I dock on the dock.
+I can navigate through the menus and select an entry to be executed by
+the shell.
 
 VIDEO: {
 	/media/menu2022.mp4
@@ -318,10 +319,11 @@ VIDEO: {
 
 § The right-click menu.
 
-I use an alternative menu system, with way fewer entries, called πmenu.
-I use it as a right-click menu for the desktop.  It only works on the
-plain desktop (not on maximized or full-screen windows), although I can
-invoke it with `Alt+Button1` click.
+I use an alternative menu system, with way fewer entries, called
+«πmenu -- https://github.com/phillbush/pmenu».  I use it as a
+right-click menu for the desktop.  It only works on the plain desktop
+(not on maximized or full-screen windows), although I can invoke it with
+`Super+Button1` click.
 
 CODE: {
 	pmenu -ex Super-3 <rules/rootmenu &
@@ -333,7 +335,8 @@ IMAGE: {
 
 § The Window Manager
 
-Then, at the end of my `~/.xsession`, I call `shod`, my window manager.
+Then, at the end of my `~/.xsession`, I call
+«shod -- https://github.com/phillbush/shod», my window manager.
 
 CODE: {
 	shod
