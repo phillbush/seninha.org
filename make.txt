@@ -1,0 +1,271 @@
+              A Template for Portable Idiomatic Makefiles
+                               2022-04-07
+
+In this post, I present the template I use to write portable,
+idiomatic Makefiles for building C programs.
+
+I use `${MYVAR}`, with curly braces, rather than `$(MYVAR)`, with
+parentheses, but both notations are supported.  In this document I
+identify two different people: the developer or Makefile author, who
+writes the Makefile; and the user or package maintainer, who defines the
+proper variables and run `make(1)`.
+
+§ The Project Files
+
+There are several files involved in the building process: the target
+files to be built, the source files, and the intermediate files.  They
+may be referenced several times by different rules, so it is a good
+practice to name them with variables.  Suppose we're building a program
+called `myprog` composed of three modules.  These are the variables to
+be defined:
+
+{
+	PROG = myprog
+	SRCS = main.c parse.c util.c
+	OBJS = main.o parse.o util.o
+}
+
+The varialbe `PROG` is the final file; `SRCS` lists the source files;
+and `OBJS` lists the intermediate, object files.  Note that both the
+list of source files and of object files are almost equal, differing
+only by the extension of the files.  POSIX `make(1)` has a notation for
+changing the ending of each word in a variable.  In order to avoid
+repeating ourselves, we can use this notation to define `${OBJS}`.
+
+{
+	PROG = myprog
+	SRCS = main.c parse.c util.c
+	OBJS = ${SRCS:.c=.o}
+}
+
+We want to build our program when we call `make` without any arguments.
+To do this, the first target should be `${PROG}` itself.  However, it is
+a common practice to use the target `all` to build the final files.  So
+the first target is `all`, which just has `${PROG}` as prerequisite.
+
+{
+	all: ${PROG}
+}
+
+Next we need to declare the dependencies between the program modules.
+This is done with rules without commands.
+
+{
+	main.o: parse.h util.h
+	parse.o: parse.h util.h
+	util.o: util.h
+}
+
+
+§ The Compilation Rules
+
+The compilation process is split in two parts: generate the object files
+from the source files, and generate the program from the object files.
+So we need two rules.
+
+The following rule builds object files (`.o`) from source files (`.c`).
+The `.c.o` is a inference rule that declare each `.c` file to be the
+prerequisite of a homonymous `.o` file.  This notation is defined by
+POSIX and is, therefore, portable (different from the `%.o: %.c` rule,
+which is a GNU extension).  In the command of an inference rule (and only
+in the command of an inference rule), the `$<` variable evaluates to the
+prerequisite file.
+{
+	.c.o:
+		${CC} -I/usr/X11R6/include ${CFLAGS} ${CPPFLAGS} -c $<
+}
+
+We use the variable `${CC}` to expand to the proper C compiler command.
+This variable is set by default to the proper command.  We should use
+this variable rather than hardcoding it to `gcc`, for example.
+
+The variables `${CFLAGS}` and `${CPPFLAGS}` contains options that the
+user or package maintainer wants to pass to the compiler or preprocessor.
+It is a bad practice to define those variables in a Makefile; let the
+user (or package maintainer) define them.  Any option that must be
+passed to the compiler (such as `-I/usr/X11R6/include` above) should be
+passed before those variables.  If the Makefile author, for example,
+define `${CFLAGS}` to `-I/usr/X11R6/include`, either this value may
+override the values set by the user, or the values set by the user may
+shadow the option set by the Makefile author.
+
+The following rule links all object files into the program.  We define
+`${OBJS}` to be the prerequisites of `${PROG}`.  The `$@` variable
+evaluates to the target file (`${PROG}` in our case).  Since this is not
+an inference rule, the `$<` variable cannot be used; we must write
+`${OBJS}` both in the rule and in the command.
+{
+	${PROG}: ${OBJS}
+		${CC} -o $@ ${OBJS} -L/usr/X11R6/lib -lX11 ${LDFLAGS}
+}
+
+The variable `${LDFLAGS}` contains options that the user or package
+maintainer wants to pass to the linker.  Again, it is a bad practice
+to define it in the Makefile.  The options `-L/usr/X11R6/lib` and
+`-lX11` are passed before this variable (so the user can override or
+increment them if necessary).
+
+
+§ The Installation rules
+
+Your Makefile may include rules for installing the final files in the
+system.  In this example, two files are installed, `${PROG}` (the final,
+compiled program), and `${PROG}.1` (the manpage, named as the program
+followed by `.1`).  The following rule performs the installation.
+
+{
+	PREFIX    = /usr/local
+	MANPREFIX = ${PREFIX}/share/man
+
+	install: all
+		mkdir -p ${DESTDIR}${PREFIX}/bin
+		mkdir -p ${DESTDIR}${MANPREFIX}/man1
+		install -m 755 ${PROG} ${DESTDIR}${PREFIX}/bin/${PROG}
+		install -m 644 ${PROG}.1 ${DESTDIR}${MANPREFIX}/man1/${PROG}.1
+}
+
+Before installing, the program should have been built; therefore `all`
+must be a prerequisite for `install`.
+
+The user or package maintainer can set the variable `${DESTDIR}` to
+specify a different installation destination.  This variable must be
+prepended to each installation path; and the Makefile author should
+not define it (it is left to the user or package maintainer to define
+it).  Note that there is no bar separating `${DESTDIR}` from what
+follows, because the `${PREFIX}` and `${MANPREFIX}` variables should
+already begin with a bar.
+
+The Makefile author, however, is expected to define two variables
+pointing to installation prefixes: `${PREFIX}`, pointing to the
+general installation prefix; and `${MANPREFIX}`, pointing to the manual
+page installation prefix.  There are other commonly defined prefixes,
+such as `${bindir}`, set to `${PREFIX}/bin`.  The user or package
+maintainer can then invoke `make(1)` with those variables assigned to
+different prefixes.  On most GNU/Linux systems, for example, `${PREFIX}`
+is assigned to `/usr`; and on OpenBSD, `${MANPREFIX}` is assigned to
+`${PREFIX}/man` (without the `share/` part).
+
+The variables `${PREFIX}` and `${MANPREFIX}` are not automatically
+assigned, but they can be changed by the user or package maintainer.
+These variables are commonly assigned in the Makefile by the Makefile
+author with the `?=` operator, which assign them only if not already
+defined, rather than with the common `=` operator.  Thus, the values
+of these variables can be inherited from the environment, and the user
+need not have to assign them on each invocation.  This operator is a
+non-POSIX extension, however, although supported by both GNU and BSD
+make implementations.
+
+Looking back at the installation commands, we first use `mkdir(1)` to
+create the destination directories, and then use `install(1)` to install
+them.  We could simply call `install` with the `-D` flag, which
+automatically creates the destination directories if necessary.
+However, this option is an extension and is not supported by some
+implementations (such as FreeBSD's).  Remember to install each file with
+its proper permission modes with the `-m` option.
+
+The Makefile author can also create a uninstallation rule, which simply
+remove the files from their destination directories.
+
+{
+	uninstall:
+		rm ${DESTDIR}${PREFIX}/bin/${PROG}
+		rm ${DESTDIR}${MANPREFIX}/man1/${PROG}.1
+}
+
+
+§ The Cleaning Rule
+
+The Makefile author can define a rule to clean the build directory
+and revert it to its original state.  Such rule is commonly called
+`clean`.  It removes the intermediate object files and the final files.
+As convenience, for the developer to clean the build directory from
+core files that may be created by the system during the development,
+the `clean` rule can also delete `.core` files.
+
+{
+	clean:
+		-rm -f ${OBJS} ${PROG} ${PROG:=.core}
+}
+
+Note that the command of this rule begins with an hyphen `-`.  This
+causes `make` to not return error (non-zero) exit status when the
+command fails.  This is handy, for cleaning an already cleaned build
+directory to not print errors.
+
+
+§ The Phony Targets
+
+In a Makefile, some rules specify “virtual” targets which do not
+correspond to any file to be created.  These are the “phony” targets.
+The `.PHONY` special target is used to mark its prerequisites as phony
+targets.  In our Makefile, we have four phony targets: `all`, `install`,
+`uninstall`, and `clean`.
+
+{
+	.PHONY: all clean install uninstall
+}
+
+
+§ The Makefile
+
+In the end, our Makefile should look like this:
+
+{
+	PROG = myprog
+	SRCS = main.c util.c
+	OBJS = ${SRCS:.c=.o}
+
+	PREFIX    = /usr/local
+	MANPREFIX = ${PREFIX}/share/man
+
+	all: ${PROG}
+
+	main.o: parse.h util.h
+	parse.o: parse.h util.h
+	util.o: util.h
+
+	.c.o:
+		${CC} -I/usr/X11R6/include ${CFLAGS} ${CPPFLAGS} -c $<
+
+	${PROG}: ${OBJS}
+		${CC} -o $@ ${OBJS} -L/usr/X11R6/lib -lX11 ${LDFLAGS}
+
+	install: all
+		mkdir -p ${DESTDIR}${PREFIX}/bin
+		mkdir -p ${DESTDIR}${MANPREFIX}/man1
+		install -m 755 ${PROG} ${DESTDIR}${PREFIX}/bin/${PROG}
+		install -m 644 ${PROG}.1 ${DESTDIR}${MANPREFIX}/man1/${PROG}.1
+
+	uninstall:
+		rm ${DESTDIR}${PREFIX}/bin/${PROG}
+		rm ${DESTDIR}${MANPREFIX}/man1/${PROG}.1
+
+	clean:
+		-rm -f ${OBJS} ${PROG} ${PROG:=.core}
+
+	.PHONY: all clean install uninstall
+}
+
+§ tl;dr
+
+• Define variables for the final files to be built, the source files,
+  and the intermediate object files created by the building process.
+  Those are commonly named `${PROG}`, `${SRCS}` and `${OBJS}`,
+  respectively.
+• Include in the Makefile, but do not assign them, the variables
+  `${CFLAGS}`, `${CPPFLAGS}`, `${LDFLAGS}` and `${DESTDIR}`.  They
+  should be assigned by the user or package maintainer.
+• Evaluate the flag variables (`${CFLAGS}`, `${CPPFLAGS}`, and
+  `${LDFLAGS}`) after any hardcoded flag, so the user or package
+  maintainer can override it.
+• Include the `all` and `clean` phony targets.  Optionally include
+  `install` and `uninstall` phony targets.  Always mark them as
+  `.PHONY`.
+• Do not use `$<` on anything but on the command of inference rules.
+• Do not use `-D` with `install(1)`.
+• Do not call `c99` or `gcc` manually.  Call the command set in `${CC}`
+  instead.
+• Assign `${PREFIX}` and `${MANPREFIX}` to the proper installation
+  prefixes.  You can assign them with the `?=` operator for the user
+  convenience, but this assignment operatior is not portable, although
+  commonly supported.

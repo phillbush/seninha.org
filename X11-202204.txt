@@ -1,0 +1,358 @@
+                      My X11 Desktop in April 2022
+                               2022-04-12
+
+In this post, I document how I set up my X11 desktop (mostly for myself
+for future reference).  This is basically a tour through my
+`~/.xsession` file.
+
+§ Xenodm
+
+The first interaction with X11 in my OpenBSD system is the display
+manager, «Xenodm(1) -- https://man.openbsd.org/xenodm», which prompts
+for my name and password for logging in.  I've done just the following
+few changes in `/etc/X11/xenodm/Xsetup_0`:
+• Commenting out the line that calls `xconsole(1)`.
+• Disabling the noisy bell with `xset b off`.
+• Set the background with `xsetroot(1)`.
+• Set my keymap with `xkbcomp(1)`.
+
+CODE: /etc/X11/xenodm/Xsetup_0 {
+	#!/bin/sh
+	# $OpenBSD: Xsetup_0,v 1.8 2020/07/04 13:32:50 matthieu Exp $
+	
+	xsetroot -bg "#000000" -fg "#121212" -mod 3 3
+	
+	#xconsole -geometry 480x130-0-0 -daemon -notify -verbose -fn fixed -exitOnFail
+	xset b off
+	
+	xkbcomp /etc/X11/xenodm/xkeymap $DISPLAY
+	
+	#  install package openbsd-backgrounds
+	#  then uncomment:
+	#
+	# if test -x /usr/local/bin/openbsd-wallpaper
+	# then
+	# 	/usr/local/bin/openbsd-wallpaper
+	# fi
+	
+	# sxpm OpenBSD.xpm &
+}
+
+My Xenodm is the standard one, I have not riced it.
+But if you want to customize Xenodm, check out
+«this -- https://www.tumfatig.net/2019/customizing-openbsd-xenodm», and
+«this -- https://zakaria.org/posts/2021-01-04-xenodm.html».
+
+After logging in as my user, Xenodm(1) runs `/etc/X11/xenodm/Xsession`
+as my user (not as root).  The main job of this system-wide script is to
+call the user-specific
+`~/.xsession` script.  But it does some other things before so:
+• It redirect both standard output and standard error of the script (and
+  everything called by it) to user's `~/.xsession-errors`.  This file is
+  very useful to check why a X11 program has malfunctioned.
+• Then, it looks for SSH keys in the `~/.ssh/` directory and, if found
+  one, runs ssh-agent, which prompts for my SSH password and hold my SSH
+  private keys.  Thus, I only need to type my SSH password once, and the
+  keys will be hold through the entire X11 session, this is very handy.
+• Finally, the system-wide script checks if `~/.xsession` exists, and
+  calls it if it exists (or call fvwm(1) if it does not).
+
+From now on, I will document what my `~/.xsession` does.  To read it at
+the time of this writing, check it
+«here -- https://github.com/phillbush/home/blob/eaafc6cb43ce68546209d4b72db57a345cfda7e6/xsession».
+
+
+§ Preparation
+
+My `~/.xsession` is a POSIX `sh(1)` script.  The first thing it does is
+to enable sh's monitor mode (enable job control) on the script.  It then
+traps the `EXIT` special signal to call the `atexit` function when the
+script exits.  This function just kills the processes in the same process
+group as the shell itself and in the process groups of the shell's
+background jobs.
+
+Here is the snipped of my `~/.xsession` that preparates the shell
+process:
+
+CODE: {
+	#!/bin/sh
+
+	set -m
+
+	atexit() {
+		kill -TERM -- -$$ $(printf "-%s " $(jobs -p))
+	}
+
+	trap 'atexit' EXIT
+}
+
+
+§ Xenocara DPI fix
+
+In OpenBSD 7.0, it may be necessary to fix a problem caused by the
+«update of Xenocara to version 21.1.1 -- https://marc.info/?l=openbsd-tech&m=163674121630769».
+So the following line may be necessary:
+
+CODE: {
+	xrandr --dpi 96
+}
+
+
+§ Variables and Resources
+
+I set my environment variables in `~/.profile`.  This file is then
+sourced by `~/.xsession` for my X11 programs to have access to those
+variables.
+
+My X11 programs also need access to the X resources (which are basically
+environment variables, but for X11 programs).  I use `xrdb(1)` to load
+the file `~/rules/Xresources`, which define them.  However, this file
+uses some environment variables, which have been defined before, but
+`xrdb` does not expand environment variables in the file it reads.  To
+solve this, I created an awk script called
+«expenv -- https://github.com/phillbush/expenv»
+to expand environment variables in a file.  I then pass the output of
+`expenv` to `xrdb`.
+
+CODE: {
+	# Load environment variables and xresources
+	. $HOME/.profile
+	expenv $HOME/rules/Xresources | xrdb -merge -load -
+}
+
+My X resources define the 16 basic terminal colors, the terminal
+background and foreground colors, and the look and feel of X11 programs
+(especially those based on Motif and Xaw/Athena).  You can check my
+Xresources file
+«here -- https://github.com/phillbush/home/blob/eaafc6cb43ce68546209d4b72db57a345cfda7e6/rules/Xresources»
+
+The following image shows how my system looks like with those resources
+set:
+
+IMAGE: {
+	/media/xresources2022.png
+}
+
+
+§ The Keyboard
+
+The next command in `~/.xsession` uses `xkbcomp` to set up my customized
+keyboard layout, which is based on ABNT-2 keyboard layout (which is
+itself a QWERTY-like layout).  In particular, I moved Esc to the first
+key and reorganized some symbols.  The image below shows part of my
+keyboard layout (there is much more to it, but I'm too lazy to edit the
+image).
+
+CODE: {
+	# Load keymap
+	xkbcomp $RULESDIR/xkeymap $DISPLAY 2>/dev/null
+}
+
+IMAGE: {
+	/media/keyboard.png
+}
+
+§ Pointer
+
+The following commands make the mouse pointer invisible after a brief
+period of time and make Thinkpad's trackpoint work as expected on X11.
+
+{
+	# make mouse invisible after a brief period
+	unclutter &
+	
+	# thinkpad trackpoint
+	xinput set-prop "/dev/wsmouse" "WS Pointer Wheel Emulation" 1
+	xinput set-prop "/dev/wsmouse" "WS Pointer Wheel Emulation Button" 2
+	xinput set-prop "/dev/wsmouse" "WS Pointer Wheel Emulation Axes" 6 7 4 5
+	synclient TapButton1=1
+	synclient TapButton2=2
+	synclient TapButton3=3
+	synclient AccelFactor=0
+	synclient HorizTwoFingerScroll=1
+}
+
+§ Compositor
+
+I use «picom -- https://github.com/yshui/picom» as my X11 compositor.
+I invoke it with a set of command-line arguments that creates a “blue
+aura” around the active window, as you can see in the image below.
+
+CODE: {
+	# compositor
+	picom -c -l -15 -t -15 \
+	      --shadow-radius 15 \
+	      --shadow-green 1.0 \
+	      --shadow-blue 1.0 \
+	      --use-ewmh-active-win \
+	      --shadow-exclude '!focused' &
+}
+
+IMAGE: {
+	/media/picom2022.png
+}
+
+
+§ Desktop Notifications
+
+I use «xnotify -- https://github.com/phillbush/xnotify» for displaying
+notifications on the screen.  Xnotify reads notification strings from
+the standard input and display each notification on a small window on
+the screen.  To be usable, it must read from a named pipe, which other
+programs should write into.  The commands below create the named pipe,
+invoke `xnotify` reading from it, and invoke some
+notification daemons that write into it.
+
+CODE: {
+	export XNOTIFYFIFO="$HOME/cache/xnotify$DISPLAY.fifo"
+	coverfile="$HOME/cache/cover.png"
+	rm -f "$XNOTIFYFIFO"
+	mkfifo "$XNOTIFYFIFO"
+	xnotify -ws 10 <"$XNOTIFYFIFO" &
+
+	notifycpu >"$XNOTIFYFIFO" &
+	notifymus >"$XNOTIFYFIFO" &
+}
+
+I currently use only two notifications, implemented as functions in my
+`~/.xsession`: `notifycpu`, which reads the `/var/log/daemon` log file
+and checks for battery and CPU temperature, notifying when the battery
+gets low and the CPU gets hot; and `notifymus` which uses `mpc` to
+notify when the current song changes.  Below is an image of one of such
+notifications, which appear at the top right corner of my screen.
+
+IMAGE: {
+	/media/notif2022.png
+}
+
+Xnotify can create notification windows in two different modes:
+• Override-redirect mode: In this mode (the default), xnotify creates
+  and manages its own notification windows.  It needs libXinerama to
+  check the size of the monitor, and it places the notification window
+  in the proper corner.  Everything is done by xnotify itself.
+• Managed mode: In this mode (set by xnotify's `-w` option), xnotify
+  creates the notification window and expects that the window manager
+  manages it.  It needs a compatible window manager.  At the time of
+  this writing, the only window manager I know that manages notification
+  windows is `shod`.  The window manager places the notification on the
+  proper corner of the screen, and draws a decoration around it.  This
+  is the mode I use.
+
+§ Dockapps
+
+Shod, the window manager I use, can swallow little windows called
+‘dockapps’ into a panel called ‘dock’.  The usual dockapps are those
+used on the WindowMaker window manager, but shod also supports them.
+The dockapps I use are the following:
+• Xmenu: A menu system. More info on that in the next section.
+• Paginator: A desktop pager.  It lists the virtual desktops and the
+  windows on them.
+• wmapm: An apm(8)/battery monitor.
+• WMmp: A mpd controller.  It shows the currently playing song and can
+  change it.
+• bubblemon: A system load monitor in the form of a rubber duck.
+• wmclock: A NeXTSTEP-like clock and calendar.
+
+CODE: {
+	# dockapps
+	paginator -iw -g64x192 -l1x5 &
+	bubblemon &
+	wmapm &
+	wmclock &
+	WMmp &
+}
+
+The image below shows my dock and the dockapps in it.
+
+IMAGE: {
+	/media/dock2022.png
+}
+
+
+§ The menu system
+
+There are a lot of ways to spawn an application.  You can open a
+terminal and invoke it.  Or you can use something like «sxhkd --
+https://github.com/baskerville/sxhkd» to bind a key combination to a
+command.  You can also use «dmenu -- https://tools.suckless.org/dmenu»
+to spawn an application; or use the right-click context menu offered by
+some window managers, such as Openbox.  I used to use all those methods,
+until I realized that I was specifying the same configuration twice (or
+three times): once for sxhkd, once for dmenu, and once for the
+right-click menu.  After realizing that, I hacked my right click menu to
+support all those input methods.
+
+CODE: {
+	xmenu -ew rules/control &
+}
+
+Xmenu is first of all a menu system.  It can present itself as a dockapp
+which I dock on the dock.  I can navigate through the menus and select
+an entry to be executed by the shell.
+
+VIDEO: {
+	/media/menu2022.mp4
+}
+
+Each entry in the menu can be bound to a key press.  For example, I bind
+`Alt+T` to open a terminal, and `Alt+Shift+5` to move the active window
+to the fifth virtual desktop.  I also bind `Alt+Space` to the ‘run’
+entry, which is explained in the paragraph below.  Xmenu grabs those key
+combinations and runs the same command it would run when selecting those
+entries in the menu.
+
+One of the entries of xmenu is special.  It is the runner. When it is
+entered (either through the menu or via a keypress) it opens an
+interactive filter (either dmenu or, in my case, «xfilter --
+https://github.com/phillbush/xfilter») and pipes all the entries, one
+per line, to that filter.  Then, I can type in an entry and select it,
+as you can see in the video below:
+
+VIDEO: {
+	/media/xfilter2022.mp4
+}
+
+(There was a bug on my config... I opened the `acme` manpage on section
+3, and it opened the manpage on section 1.)
+
+
+§ The right-click menu.
+
+I use an alternative menu system, with way fewer entries, called πmenu.
+I use it as a right-click menu for the desktop.  It only works on the
+plain desktop (not on maximized or full-screen windows), although I can
+invoke it with `Alt+Button1` click.
+
+CODE: {
+	pmenu -ex Super-3 <rules/rootmenu &
+}
+
+IMAGE: {
+	/media/pmenu2022.png
+}
+
+§ The Window Manager
+
+Then, at the end of my `~/.xsession`, I call `shod`, my window manager.
+
+CODE: {
+	shod
+}
+
+The main feature of shod is the possibility to tile, and even tab,
+windows inside floating containers.  The image below shows a floating
+container with some windows inside it.
+
+IMAGE: {
+	/media/shod2022.png
+}
+
+This feature was inspired mainly on «acme -- http://acme.cat-v.org/»,
+Plan 9's text editor and general user interface.  Acme can also tile
+windows (but it is limited to text windows only) inside a single main,
+floating major window.
+
+§ Conclusion
+
+I need to focus on other things.
+Ricing is not a normal-person hobby.

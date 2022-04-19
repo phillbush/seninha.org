@@ -1,0 +1,106 @@
+@font-face {
+	font-family: "alagard";
+	src: url('media/alagard.ttf');
+}
+
+@font-face {
+	font-family: "moderndos";
+	src: url('media/moderndos.ttf');
+}
+
+html {
+	font-family: "moderndos";
+}
+
+body {
+	background-color: #0C023B;
+	color: #D5D1E0;
+	margin: 2em auto;
+	padding: 0 2em;
+	max-width: 47em;
+	line-height: 1.6;
+	text-align: justify;
+	overflow: auto;
+}
+
+p > code, li > code {
+	border-style: solid;
+	border-width: 1px;
+	border-color: #05030E #19066D #19066D #05030E;
+	break-inside: avoid;
+}
+
+figcaption {
+	font-size: 0.9em;
+}
+
+figure {
+	margin: 1em 0em;
+	line-height: normal;
+	padding: 0em;
+}
+
+figure > pre {
+	border-style: solid;
+	border-width: 2px;
+	border-color: #05030E #19066D #19066D #05030E;
+	padding: 0.5em 1em;
+	margin: 0em;
+	overflow: auto;
+}
+
+a:link {
+	color: #E9C789;
+	text-decoration: underline;
+}
+
+a:hover {
+	text-decoration: none;
+}
+
+a:visited {
+	color: #AE77B8;
+	text-decoration: underline;
+}
+
+ul, ol {
+	margin-left: 0;
+	padding-left: 1em;
+}
+
+h1 {
+	font-family: "alagard";
+	border-style: solid;
+	border-width: 7px;
+	border-color: #19066D #05030E #05030E #19066D;
+	color: #E9C789;
+}
+
+h1, h1 + p, figcaption {
+	text-align: center;
+}
+
+h1, h2, h3, h4 {
+	margin-top: 2em;
+	line-height: 1.2;
+}
+
+h2::before {
+	content: "§ ";
+}
+
+h3::before {
+	content: "§§ ";
+}
+
+h4::before {
+	content: "§§§ ";
+}
+
+img, video {
+    display: block;
+    max-width: 100%;
+    max-height: 40em;
+    margin-left: auto;
+    margin-right: auto;
+}

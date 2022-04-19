@@ -1,0 +1,451 @@
+                     How I Set Up My OpenBSD Server
+                               2022-04-18
+
+These are my self-notes on how I set up my OpenBSD web and mail server.
+
+Commands run in my server are prefixed with a `seninha.org#` prompt.
+Commands run in my local machine are prefixed with a `$` prompt.
+I use `example.com` rather than `seninha.org` to hide my email from bots.
+
+§ DNS Records
+
+I set the following records in my domain registrar.  Note that the
+record names end with a period.
+
+.Address records.
+I create an `A` and an `AAAA` records, both named `seninha.org.`, and
+set them to the 32-bit IPv4 and 128-bit IPv6 addresses of my server,
+respectively.  These records are used to map hostname to IP addresses.
+
+.Alias records.
+I create two `CNAME` records, one named `mail.seninha.org.` and the
+other named `www.seninha.org.`, and both set to `seninha.org`.  These
+records are used to set aliases for a hostname.
+
+.Mail exchange record.
+I create an `MX` record named `seninh.org.`, with the priority set to
+`0` and the host set to `mail.seninha.org`.  This record maps a domain
+name to MTAs (message transfer agents) for that domain.  In my case,
+there is only one MTA, so I set it to the highest priority (0).
+
+.SPF TXT record.
+I create a `TXT` record named `seninha.org.`, and set to `"v=spf1 mx
+-all"`.   This is an SPF record, used for email authentication.  SPF
+allows the owner of an Internet domain to specify which computers are
+authorized to send mail with envelope-from address in that domain.  The
+data of this record is composed of the following space-delimited
+strings:
+• The `v=spf1` specifies the version of SPF to be used.
+• The `mx` is a mechanism specifying that if the domain name has an MX
+  record resolving to the sender's address, it will match (i.e. the mail
+  comes from one of the domain's incoming mail servers).
+• The `-all` at the end specifies that, if the previous mechanisms did
+  not match, the message should be rejected.
+
+.DMARC TXT record.
+I create a `TXT` record named `_dmarc.seninha.org.` (this record must be
+published in DNS with a subdomain label `_dmarc`); and with data set to
+`"v=DMARC1;p=none;pct=100;rua=mailto:postmaster@example.com;"`.  This
+is a DMARC record, used for email authentication.  It indicates that
+email messages from this domain are protected by SPF or DKIM, and tells
+a receiver what to do if neither of those authentication methods passes
+(such as to reject the message or quarantine it); DMARC can also specify
+how an email receiver can report back to the sender's domain about
+messages that pass and/or fail.  The data of this record is composed of
+the following semicolon-terminated strings:
+• The `v=DMARC1;` specifies the version of DMARC to be used.
+• The `p=none;` specifies that the policy to be used when an email is
+  not authenticated is to do nothing (not quarantine nor reject the
+  mail).
+• The `pct=100;` specifies that the amount of "bad" email on which to
+  apply the policy is 100% of them.
+• The `rua=mailto:postmaster@example.com;` specifies the URI to send
+  reports to.
+
+.DKIM TXT record.
+I create a `TXT` record named `SELECTOR._domainkey.seninha.org.` (where
+`SELECTOR` can be any string, I use the date when the keypair was
+generated); and set it to `"v=DKIM1;k=rsa;p=PUBKEY;"` (where `PUBKEY` is
+a public key).  This is a DKIM record, used for mail authentication.
+DKIM allows the receiver to check that an email claimed to have come
+from this domain was indeed authorized by the owner of such domain.  It
+achieves this by affixing a digital signature, linked to a domain name,
+to each outgoing email message.  The recipient system can verify this by
+looking up the sender's public key published in the DNS.  A valid
+signature also guarentees that the message have not been modified since
+the signature was affixed.  The data of this record is composed of the
+following semicolon-terminated strings:
+• The `v=DKIM1;` specifies the version of DKIM to be used.
+• The `k=rsa;` specifies the type of keypair.
+• The `p=PUBKEY;` specifies the public key.
+
+To set up DKIM, I create a directory to hold the keys; generate the
+keypair and extract the public key out of the private key; and make sure
+the private key isn't world-readable.
+{
+	seninha.org# mkdir /etc/mail/dkim
+	seninha.org# openssl genrsa -out /etc/mail/dkim/seninha.org.key 1024
+	seninha.org# openssl rsa -in /etc/mail/dkim/seninha.org.key -pubout
+	seninha.org# chmod 400 /etc/mail/dkim/seninha.org.key
+}
+
+
+§ Server preparation
+
+I use a VPS at Vultr.com to host the website and other services.  On
+Vultr machines, the outbound port 25 (for SMTP) is blocked by default;
+I needed to ask them to unblock it.
+
+.Install patches and vim.
+The first thing I do after creating the virtual server is to log in as
+root via ssh and run syspatch(8) and install the following packages:
+• dovecot
+• opensmtpd-extras
+• opensmtpd-filter-dkimsign
+• vim
+
+.Create users.
+There are three users on my vps: `admin`, `webdev`, and `vmail` (those
+are not their actual names, they are too obvious, I actually use other
+names, but let's call them thus).   I create them with adduser(8) then
+call usermod(8) to put admin in the wheel secondary group.
+• `admin` is on the wheel group and has doas powers.
+• `webdev` owns the website's root directory (`/var/www/seninha.org`,
+  which must be created manually) and maintains the site.
+• `vmail` does not login, so its shell is `/sbin/nologin`, and its home
+  directory is `/var/vmail` (which must be created manually and
+  chown(8)'d to `vmail:vmail`).
+
+.Copy configuration files.
+The only two configuration files I copy from my local machine to the
+remote machine are vimrc and kshrc.  I move them to the home directory
+of each user on the remote machine.  I also create a `~/.profile` file
+to set the `$ENV` variable necessary to read kshrc.
+
+.Edit doas configuration.
+To give administrative powers to the wheel group (and, consequently, to
+the admin user), I edit the `/etc/doas.conf` file on the remote machine.
+
+
+§ SSH
+
+.Copy the public key to the server.
+I use scp(1) to copy my ssh public key from my laptop to the
+`~/.ssh/authorized_keys` file of each user on the remote machine.
+
+.Change the ssh port.
+For security reasons, I change the ssh port of the server from 22 to a
+random number.  I use rcctl(8) to do that and restart sshd(8).
+{
+	seninha.org# rcctl set sshd flags -p $RAND_PORT
+	seninha.org# rcctl enable sshd
+	seninha.org# rcctl restart sshd
+}
+
+.Protect ssh.
+For security reasons, I disable root login via ssh, password
+authentication and challenge-response.  I edit the
+`/etc/ssh/sshd_config` file, uncomment and change the necessary lines.
+{
+	seninha.org# cat /etc/ssh/sshd_config
+	[...]
+	PermitRootLogin no
+	PasswordAuthentication no
+	ChallengeResponseAuthentication no
+	[...]
+}
+
+.Known hosts.
+To avoid having to type the port, user and hostname on my local machine
+every time I call ssh(1), I edit the `~/.ssh/config` file in the home
+directory of my local user in my local machine to set two known hosts,
+one for the admin user, and the other for the webdev user.  Now, I only
+need to invoke `ssh webdev` to log in as webdev on the server.
+{
+	$ cat ~/.ssh/config
+	[...]
+	Host webdev
+	HostName seninha.org
+	User webdev
+	Port $RAND_PORT
+
+	Host admin
+	HostName seninha.org
+	User admin
+	Port $RAND_PORT
+	[...]
+}
+
+§ HTTPD
+
+I've edited the `/etc/httpd.conf` file with the following contents
+(a template for this file is present at `/etc/examples/`).
+
+CODE: /etc/httpd.conf {
+	server "seninha.org" {
+	        listen on * tls port 443
+	        root "/seninha.org"
+	        tls {
+	                certificate "/etc/ssl/seninha.org.fullchain.pem"
+	                key "/etc/ssl/private/seninha.org.key"
+	        }
+	        location "/.well-known/acme-challenge/*" {
+	                root "/acme"
+	                request strip 2
+	        }
+	}
+	
+	server "www.seninha.org" {
+	        listen on * tls port 443
+	        tls {
+	                certificate "/etc/ssl/seninha.org.fullchain.pem"
+	                key "/etc/ssl/private/seninha.org.key"
+	        }
+	        block return 301 "https://seninha.org$REQUEST_URI"
+	}
+	
+	server "mail.seninha.org" {
+	        listen on * port 80
+	        location "/.well-known/acme-challenge/*" {
+	                root "/acme"
+	                request strip 2
+	        }
+	        location * {
+	                block return 302 "https://$HTTP_HOST$REQUEST_URI"
+	        }
+	}
+	
+	server "seninha.org" {
+	        listen on * port 80
+	        alias "www.seninha.org"
+	        block return 301 "https://seninha.org$REQUEST_URI"
+	}
+	
+	types {
+	        include "/usr/share/misc/mime.types"
+	}
+}
+
+Then, I restart httpd:
+{
+	seninha.org# httpd -n
+	seninha.org# rcctl enable httpd
+	seninha.org# rcctl restart httpd
+}
+
+
+§ ACME
+
+I've edited the `/etc/acme-client.conf` file with the following contents
+(a template for this file is present at `/etc/examples/`).  I use the
+`www.` and `mail.` subdomains as alternative names.
+
+CODE: /etc/acme-client.conf {
+	#
+	# $OpenBSD: acme-client.conf,v 1.4 2020/09/17 09:13:06 florian Exp $
+	#
+	authority letsencrypt {
+	        api url "https://acme-v02.api.letsencrypt.org/directory"
+	        account key "/etc/acme/letsencrypt-privkey.pem"
+	}
+
+	authority letsencrypt-staging {
+	        api url "https://acme-staging-v02.api.letsencrypt.org/directory"
+	        account key "/etc/acme/letsencrypt-staging-privkey.pem"
+	}
+
+	domain seninha.org {
+	        alternative names { www.seninha.org mail.seninha.org }
+	        domain key "/etc/ssl/private/seninha.org.key"
+	        domain certificate "/etc/ssl/seninha.org.crt"
+	        domain full chain certificate "/etc/ssl/seninha.org.fullchain.pem"
+	        sign with letsencrypt
+	}
+}
+
+Then, I create the necessary directories:
+
+{
+	seninha.org# mkdir -p -m 700 /etc/acme
+	seninha.org# mkdir -p -m 700 /etc/ssl/acme/private
+	seninha.org# mkdir -p -m 755 /var/www/acme
+}
+
+Then, I restart httpd(8).
+{
+	seninha.org# httpd -n && rcctl restart httpd
+}
+
+Then, I run the acme-client to create a new account and a key.
+{
+	seninha.org# acme-client -v seninha.org
+}
+
+The certificates are valid for 90 days so I need to setup a cronjob to
+renew.  It is run daily but only once the end of the validity comes in
+sight, will the certificates actually be renewed.
+
+CODE: crontab {
+	05 3 * * * acme-client seninha.org && rcctl reload httpd
+}
+
+
+§ OpenSMTPD
+
+I've edited the `/etc/mail/smtpd.conf` file with the following contents.
+I've configured OpenSMTPD to listen on external interfaces (by default
+it only listens on localhost); and to use virtual users instead of
+system users (for security).
+• The first block of directives sets up the pki.  It associates the
+  certificate file `/etc/ssl/seninha.org.fullchain.pem`, and the key
+  `/etc/ssl/private/seninha.org.key` with the pki entry `mail`.  The
+  key and certificate were generated previously by ACME.
+• The second block creates a filter named `dkimsign`, which uses the
+  command `filter-dkimsign(8)` to filter outcoming mail to sign them
+  as required by the DKIM protocol.
+• The third block sets up tables that provide additional configuration
+  information for smtpd(8).  The first table, `aliases`, sets aliases
+  for the local mail; this table is already present in the system.  The
+  second table, `credentials`, is a passwd-like table which sets the
+  passwords for the mail accounts.  The third and last table,
+  `virtuals`, maps virtual accounts to real accounts.
+• The fourth block contains `listen` directives.  They listen on certain
+  interfaces for incomming connections, and use the same syntax as
+  ifconfig(8).
+• The fifth block sets up actions to be performed on received messages.
+  The first line sets up the `local_mail` action, which delivers the
+  messages to the users' mbox, using the mapping table for aliases(5)
+  expansion.  The second line sets up the `domain_mail` action, which
+  delivers the messages to the given maildir, using the mapping table
+  for virtual expansion.  The last line sets up a `relay` action, for
+  relaying messages to another SMTP server.
+• The sixth and last block contains `match … action` directives, which
+  set up rules for mapping actions to listened interfaces.  The first
+  line assign the `local_mail` action for local mail.  The second line
+  assigns the `domain_mail` action for mails comming from anywhere and
+  addressed to `seninha.org`.  The third line assigns the `outbound`
+  action for local mails addressed to remote machines.  And the fourth
+  and last line assigns the `outbound` action for mails from and for
+  remote machines that have been authenticated.
+
+CODE: /etc/mail/smtpd.conf {
+	pki "mail" cert "/etc/ssl/seninha.org.fullchain.pem"
+	pki "mail" key "/etc/ssl/private/seninha.org.key"
+
+	filter "dkimsign" proc-exec "filter-dkimsign -d seninha.org -s 20211006 -k /etc/mail/dkim/seninha.org.key" user _dkimsign group _dkimsign
+
+	table aliases file:/etc/mail/aliases
+	table credentials passwd:/etc/mail/credentials
+	table virtuals file:/etc/mail/virtuals
+
+	listen on lo0
+	listen on egress tls pki "mail" filter "dkimsign"
+	listen on egress port submission tls-require pki "mail" hostname "mail.seninha.org" auth <credentials> filter "dkimsign"
+
+	action "local_mail" mbox alias <aliases>
+	action "domain_mail" maildir "/var/vmail/seninha.org/%{dest.user:lowercase}" virtual <virtuals>
+	action "outbound" relay
+
+	match from local for local action "local_mail"
+	match from any for domain "seninha.org" action "domain_mail"
+	match from local for any action "outbound"
+	match auth from any for any action "outbound"
+}
+
+.The credentials table.
+The credentials table is a passwd-like authentication database shared by
+both OpenSMTPD and Dovecot.  Passwords are in blowfish format.  First,
+I generate the password with `smtpctl encrypt`, and then I edit the
+`/etc/mail/credentials` with the following content, with `PASSWORD`
+replaced by the encrypted password generated by smtpctl(8).  Each line
+is an entry of colon-delimited fields.  Remember to set this file's
+permissions to read-only for the `_smtpd` and `_dovecot` system users.
+• The first field is the mail account.
+• The second field is the encrypted password generated by smtpctl(8).
+• The third field is the system user associated with the mail account (I
+  use a single user called `vmail` for this).
+• The fourth field is the user ID for that user.
+• The fifth field is the group ID for that user.
+• The sixth field is the user's home directory.
+• The seventh field is the user's login shell.
+• The eighth field is an extra field used by Dovecot; it specifies the
+  type of mail box (maildir, in this case).
+• The ninth field is the mail location.
+
+CODE: /etc/mail/credentials {
+	lucas@example.com:PASSWORD:vmail:1002:1002:/var/vmail/seninha.org/lucas::userdb_mail=maildir:/var/vmail/seninha.org/lucas
+}
+
+.The virtuals table.
+The first lines assign `lucas@example.com` aliases for `postmaster`,
+`contato`, `seninha`, `contact`, `eu` and `me`.  The last line maps
+the email address to the `vmail` account.  OpenSMTPD will deliver the
+messages to `/var/vmail/seninha.org/USER`.  Mail delivery attempted
+for addresses not defined in this file will be bounced with a Delivery
+Status Notification.
+{
+	postmaster@example.com  lucas@example.com
+	contato@example.com     lucas@example.com
+	seninha@example.com     lucas@example.com
+	contact@example.com     lucas@example.com
+	eu@example.com          lucas@example.com
+	me@example.com          lucas@example.com
+	lucas@example.com       vmail
+}
+
+Then, I test smtpd's configuration, enable it, and start it.
+{
+	seninha.org# smtpd -n
+	seninha.org# rcctl enable smtpd
+	seninha.org# rcctl restart smtpd
+}
+
+
+§ Dovecot
+
+.Set the Login Class.
+Dovecot requires the ability to have a larger number of files open for
+reading and writing than the default class allows.  Failing to do this
+will cause errors that are difficult to troubleshoot.   Define a login
+class for the Dovecot daemon.   At the bottom of the `/etc/login.conf`
+file, add the following lines.
+
+CODE: /etc/login.conf {
+	dovecot:\
+	    :openfiles-cur=1024:\
+	    :openfiles-max=2048:\
+	    :tc=daemon:
+}
+
+I then edit several files at the `/etc/dovecot/conf.d/` directory.
+
+CODE: /etc/dovecot/conf.d/10-auth.conf {
+	[...]
+	disable_plaintext_auth = yes
+	[...]
+	auth_mechanisms = plain
+	[...]
+	passdb {
+		driver = passwd-file
+		args = scheme=CRYPT username_format=%u /etc/mail/credentials
+	}
+
+	userdb {
+		driver = passwd-file
+		args = username_format=%u /etc/mail/credentials
+	}
+	[...]
+}
+
+CODE: /etc/dovecot/conf.d/10-ssl.conf {
+	[...]
+	ssl_cert = </etc/ssl/seninha.org.fullchain.pem>
+	ssl_key = </etc/ssl/private/seninha.org.key>
+	[...]
+}
+
+CODE: /etc/dovecot/conf.d/10-mail.conf {
+	[...]
+	mail_location = maildir:/var/vmail/%d/%n
+	[...]
+}
