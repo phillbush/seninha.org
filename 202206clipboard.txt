@@ -1,0 +1,47 @@
+              Clipboard copy bug in some X11 applications
+                               2022-06-01
+
+In this short post, I document a bug I found in a X11 program while
+studying how X11 does copy-and-paste.
+
+I'm working on my new project, «control -- https://github.com/phillbush/control»,
+a X11 widget toolkit based on the X Toolkit Intrinsics framework.  While
+working on the input field widget, it was necessary to handle copying
+and pasting of text, both to the clipboard selection (copied with Ctrl-C
+and pasted with Ctrl-V) and to the primary selection (copied by
+selecting a text and pasted by a middle mouse click).  This required me
+to learn how the selection mechanism works in X11.
+
+After learning it, I spotted a possible misfeature that some GUI
+applications and toolkits may have: they can copy what you select after
+typing Ctrl-C.  I then tested a few GUI applications to see whether this
+potential misfeature occurs in the wild.  For my pleasure, the first
+application I tested, the «HexChat -- https://hexchat.github.io» IRC
+client, presented that bug.
+
+You can try that: Open HexChat, select some text, type Ctrl-C, then
+select another text.  Then, paste it with Ctrl-V to a second
+application.  It is expected that what will be pasted is the first
+selected text that you copied.  But what will actually be pasted is the
+second thing you selected.
+
+I tested it on HexChat 2.14.3, running on X.Orx X Server 1.21.1.3 on
+OpenBSD.
+
+Most applications, however, work as expected.  You copy what you
+selected right before pressing Ctrl-C.  You can select and deselect at
+will after the Ctrl-C and nothing will change what you had copied.
+
+What happens is that, in X11, for an application to copy something with
+Ctrl-C, it needs first to obtain the ownership of the clipboard (when
+you press Ctrl-C), and then pass the selected text to a second
+application when asked for it (when you press Ctrl-V).  There is,
+obviously, a certain period of time between the application to gain
+ownership of the clipboard and to be asked for its content (that is, the
+time between pressing Ctrl-C and Ctrl-V).
+
+Some X11 applications (like HexChat) do not save the selected text at
+the time it gets the ownership of the clipboard.  They actually just pass
+what is selected at the time the content of the clipboard is asked for.
+So if you select another text in the meantime between Ctrl-C and Ctrl-V,
+what will be actually pasted is what you have selected last.

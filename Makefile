@@ -2,6 +2,7 @@
 
 MEDIA != ls media/*
 NOTES = \
+	202206clipboard \
 	server202204 \
 	X11-202204 \
 	make

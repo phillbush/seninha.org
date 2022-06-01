@@ -449,3 +449,34 @@ CODE: /etc/dovecot/conf.d/10-mail.conf {
 	mail_location = maildir:/var/vmail/%d/%n
 	[...]
 }
+
+§ SPAMD
+
+.Configure spamd.
+I edit `/etc/mail/spamd.conf` to add override/whitelist if desired (file
+`/etc/mail/nospamd` in sample pf rules).
+
+.Add spamd pf rules from example /etc/pf.conf.
+Comment out prior rule that passed smtp on egress (because now we want
+incoming mail to be redirected to spamd running on localhost port 8025).
+
+CODE: /etc/pf.conf {
+	[...]
+
+	#pass in on egress proto tcp to any port smtp
+	pass in on egress proto tcp to any port submission
+	# rules for spamd(8)
+	table <spamd-white> persist
+	table <nospamd> persist file "/etc/mail/nospamd"
+	pass in on egress proto tcp from any to any port smtp \
+		rdr-to 127.0.0.1 port spamd
+	pass in on egress proto tcp from <nospamd> to any port smtp
+	pass in log on egress proto tcp from <spamd-white> to any port smtp
+	pass out log on egress proto tcp to any port smtp
+
+	[...]
+}
+
+.Enable and start spamd.
+Finally, I enable spamd and set it flags to `-v`.
+I also check `netstat -na -f inet` to see if spamd is listening on port 8025.
