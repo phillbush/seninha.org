@@ -38,6 +38,7 @@ figure {
 	margin: 1em 0em;
 	line-height: normal;
 	padding: 0em;
+	text-align: center;
 }
 
 figure > pre {
@@ -47,6 +48,10 @@ figure > pre {
 	padding: 0.5em 1em;
 	margin: 0em;
 	overflow: auto;
+}
+
+pre {
+	text-align: left;
 }
 
 a:link {
@@ -98,7 +103,6 @@ h4::before {
 }
 
 img, video {
-    display: block;
     max-width: 100%;
     max-height: 40em;
     margin-left: auto;
