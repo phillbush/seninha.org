@@ -2,6 +2,7 @@
 
 MEDIA != ls media/*
 NOTES = \
+	202206sicp \
 	202206birds \
 	202206clipboard \
 	server202204 \

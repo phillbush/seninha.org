@@ -132,7 +132,7 @@ BEGIN {
 	markup["html", "VIDEO", "MID"] = "<video controls=\"\"><source src=\"%s\"></video>"
 	markup["html", "VIDEO", "END"] = ""
 	markup["html", "IMAGE", "BEG"] = ""
-	markup["html", "IMAGE", "MID"] = "<img src=\"%s\" alt=\"%s\">"
+	markup["html", "IMAGE", "MID"] = "<a class=\"image\" href=\"%s\"><img src=\"%s\" alt=\"%s\"></a>"
 	markup["html", "IMAGE", "END"] = ""
 	markup["html", "FIGCAPTION", "MID"] = "<figcaption>%s</figcaption>\n"
 	markup["html", "TABCAPTION", "MID"] = "<figcaption>%s</figcaption>\n"
@@ -432,10 +432,11 @@ function prose(    para, period, notes, enums, label, colon, lvl, s, n, m, i, j,
 			enums[n] = substr(enums[n], RSTART + RLENGTH)
 			sub(/^[ \n]+/, "", enums[n])
 		}
-		if (match(enums[n], /^[^\n:]+:\n/)) {
+		if (match(enums[n], /^[^\n:]+:( +|\n$)/)) {
 			colon = substr(enums[n], RSTART, RLENGTH)
 			enums[n] = substr(enums[n], RSTART + RLENGTH)
 			sub(/^[ \n]+/, "", enums[n])
+			sub(/^[ \n]+$/, "", colon)
 			colon = sprintf("%s%s%s",             \
 				markup[type, "COLON", "BEG"], \
 				punctuate(colon),             \
@@ -568,7 +569,12 @@ function figure(    figtype, i) {
 		if (figtype == "IMAGE") {
 			sub(/^[ \t]+/, "")
 			sub(/[ \t]+$/, "")
-			printf markup[type, "IMAGE", "MID"], $0, caption
+			full = $0
+			if (match($0, / +-- +/)) {
+				full = substr($0, RSTART + RLENGTH)
+				sub(/ +-- +.*/, "")
+			}
+			printf markup[type, "IMAGE", "MID"], $0, full, caption
 		} else if (figtype == "VIDEO") {
 			sub(/^[ \t]+/, "")
 			sub(/[ \t]+$/, "")
