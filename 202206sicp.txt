@@ -113,7 +113,7 @@ We can simplify the left side of the equation on the goal.
 As declared in section 1.2.2, `φ` is the golden ratio, the only positive
 solution to the equation `x²=x+1`.  The `ψ` constant also share that
 property, being the only negative solution to that equation.  We can
-apply this equation to φ and to ψ:
+apply this equation to `φ` and to `ψ`:
 
 {
 	… ⊦ (φᵏ·φ² - ψᵏ·ψ²)/√5 = (φᵏ⁺²-ψᵏ⁺²)/√5.
